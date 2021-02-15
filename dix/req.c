@@ -1623,6 +1623,67 @@ static void dix_cas_rop_rc_update(struct m0_dix_cas_rop *cas_rop, int rc)
 	}
 }
 
+static void dix_rop_one_completed(struct m0_sm_group *grp, struct m0_sm_ast *ast)
+{
+	struct m0_dix_cas_rop *crop = ast->sa_datum;
+	struct m0_dix_req     *dreq = dreq = crop->crp_parent;
+	struct m0_dtm0_dtx    *dtx  = dreq->dr_dtx->tx_dtx;
+	struct m0_dix_cas_rop *cas_rop;
+	int                    idx  = 0;
+	struct m0_dix_rop_ctx  *rop;
+
+	M0_PRE(!dreq->dr_is_meta);
+	M0_PRE(M0_IN(dreq->dr_type, (DIX_PUT, DIX_DEL)));
+
+	rop = crop->crp_parent->dr_rop;
+	dix_cas_rop_rc_update(crop, 0);
+
+	/* TODO: clean up this thing */
+	m0_tl_for(cas_rop, &rop->dg_cas_reqs, cas_rop) {
+		if (cas_rop == crop) {
+			if (dtx->dd_txd.dtd_pg.dtpg_pa[idx].pa_state <
+			    M0_DTPS_EXECUTED) {
+				dtx->dd_txd.dtd_pg.dtpg_pa[idx].pa_state =
+					M0_DTPS_EXECUTED;
+			}
+		}
+		idx++;
+	} m0_tl_endfor;
+
+	if (dtx->dd_sm.sm_state < M0_DDS_EXECUTED)
+		m0_sm_state_set(&dtx->dd_sm, M0_DDS_EXECUTED);
+
+	if (rop->dg_completed_nr == rop->dg_cas_reqs_nr) {
+		/* TODO: this code is a workaround that helps dtx
+		 * to reach STABLE without PERSISTENT notices from the
+		 * DTM0 service.
+		 * We must ensure here that INPROGRESS -> STABLE transition
+		 * does not happen instantly. If this happens then the ast
+		 * on the m0c side will be overwritten. This may happen
+		 * only if we have one single CAS request.
+		 */
+		M0_ASSERT(rop->dg_completed_nr > 1);
+		M0_ASSERT(dtx->dd_sm.sm_state == M0_DDS_EXECUTED);
+
+		idx = 0;
+		m0_tl_for(cas_rop, &rop->dg_cas_reqs, cas_rop) {
+			m0_cas_req_fini(&cas_rop->crp_creq);
+			/* TODO: Should be filled by DTM0 service */
+			dtx->dd_txd.dtd_pg.dtpg_pa[idx].pa_state =
+				M0_DTPS_PERSISTENT;
+			idx++;
+		} m0_tl_endfor;
+
+		dix_rop_ctx_fini(rop);
+		dix_req_state_set(dreq, DIXREQ_FINAL);
+
+		/* TODO: Should be triggered by DTM0 service */
+		m0_sm_state_set(&dtx->dd_sm, M0_DDS_PERSISTENT);
+		m0_sm_state_set(&dtx->dd_sm, M0_DDS_STABLE);
+	}
+
+}
+
 static void dix_rop_completed(struct m0_sm_group *grp, struct m0_sm_ast *ast)
 {
 	struct m0_dix_req     *req = ast->sa_datum;
@@ -1686,11 +1747,22 @@ static bool dix_cas_rop_clink_cb(struct m0_clink *cl)
 		rop = crop->crp_parent->dr_rop;
 		rop->dg_completed_nr++;
 		M0_PRE(rop->dg_completed_nr <= rop->dg_cas_reqs_nr);
-		if (rop->dg_completed_nr == rop->dg_cas_reqs_nr) {
-			rop->dg_ast.sa_cb = dix_rop_completed;
-			rop->dg_ast.sa_datum = dreq;
+
+		if (dreq->dr_dtx != NULL) {
+			rop->dg_ast.sa_cb = dix_rop_one_completed;
+			rop->dg_ast.sa_datum = crop;
+			M0_ASSERT(dix_req_smgrp(dreq) ==
+				  dreq->dr_dtx->tx_dtx->dd_sm.sm_grp);
 			m0_sm_ast_post(dix_req_smgrp(dreq), &rop->dg_ast);
+		} else {
+			if (rop->dg_completed_nr == rop->dg_cas_reqs_nr) {
+				rop->dg_ast.sa_cb = dix_rop_completed;
+				rop->dg_ast.sa_datum = dreq;
+				m0_sm_ast_post(dix_req_smgrp(dreq),
+					       &rop->dg_ast);
+			}
 		}
+
 	}
 	return true;
 }
