@@ -850,12 +850,14 @@ static bool dixreq_clink_dtx_cb(struct m0_clink *cl)
 	struct m0_op_idx        *oi = dix_req->idr_oi;
 	struct m0_sm            *req_sm = M0_AMB(req_sm, cl->cl_chan, sm_chan);
 	struct m0_dix_req       *dreq = &dix_req->idr_dreq;
-	struct m0_dtm0_dtx      *dtx = oi->oi_dtx->tx_dtx;
-	uint32_t                 state = dtx->dd_sm.sm_state;
+	struct m0_dtx           *dtx = oi->oi_dtx;
+	enum m0_dtm0_dtx_state   state;
 	int                      i;
 
-	M0_PRE(dtx != NULL);
 	M0_PRE(M0_IN(oi->oi_oc.oc_op.op_code, (M0_IC_PUT, M0_IC_DEL)));
+	M0_PRE(dtx != NULL);
+
+	state = m0_dtx0_sm_state(dtx);
 
 	if (!M0_IN(state, (M0_DDS_EXECUTED, M0_DDS_STABLE, M0_DDS_FAILED)))
 		return false;

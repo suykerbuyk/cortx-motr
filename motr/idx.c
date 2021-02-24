@@ -171,22 +171,15 @@ static int idx_op_init(struct m0_idx *idx, int opcode,
 }
 
 static void idx_op_set_complete_state(struct m0_op_idx *oi,
-				      uint32_t          mask)
+				      uint64_t          mask)
 {
-	struct m0_op        *op;
-	struct m0_sm_group  *op_grp;
-	struct m0_sm_group  *en_grp;
+	struct m0_op        *op = &oi->oi_oc.oc_op;
+	struct m0_sm_group  *op_grp = &op->op_sm_group;
+	struct m0_sm_group  *en_grp = &op->op_entity->en_sm_group;
 
 	M0_ENTRY();
 
 	M0_PRE((mask & ~M0_BITS(M0_OS_EXECUTED, M0_OS_STABLE)) == 0);
-	M0_PRE(oi != NULL);
-	op = &oi->oi_oc.oc_op;
-	M0_PRE(op != NULL);
-	op_grp = &op->op_sm_group;
-	M0_PRE(op_grp != NULL);
-	en_grp = &op->op_entity->en_sm_group;
-	M0_PRE(en_grp != NULL);
 
 	oi->oi_in_completion = true;
 
@@ -226,8 +219,8 @@ M0_INTERNAL void idx_op_ast_stable(struct m0_sm_group *grp,
 	M0_ENTRY();
 
 	M0_PRE(grp != NULL);
-	M0_PRE(m0_sm_group_is_locked(grp));
 	M0_PRE(ast != NULL);
+	M0_PRE(m0_sm_group_is_locked(grp));
 
 	idx_op_set_complete_state(ar_ast2oi(ast), M0_BITS(M0_OS_STABLE));
 
@@ -240,8 +233,8 @@ M0_INTERNAL void idx_op_ast_executed(struct m0_sm_group *grp,
 	M0_ENTRY();
 
 	M0_PRE(grp != NULL);
-	M0_PRE(m0_sm_group_is_locked(grp));
 	M0_PRE(ast != NULL);
+	M0_PRE(m0_sm_group_is_locked(grp));
 
 	idx_op_set_complete_state(ar_ast2oi(ast), M0_BITS(M0_OS_EXECUTED));
 
@@ -260,8 +253,8 @@ M0_INTERNAL void idx_op_ast_complete(struct m0_sm_group *grp,
 	M0_ENTRY();
 
 	M0_PRE(grp != NULL);
-	M0_PRE(m0_sm_group_is_locked(grp));
 	M0_PRE(ast != NULL);
+	M0_PRE(m0_sm_group_is_locked(grp));
 
 	idx_op_set_complete_state(ar_ast2oi(ast),
 				  M0_BITS(M0_OS_EXECUTED, M0_OS_STABLE));

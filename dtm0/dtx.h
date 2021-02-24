@@ -95,6 +95,8 @@ M0_INTERNAL void m0_dtx0_executed(struct m0_dtx *dtx, uint32_t pa_idx);
 M0_INTERNAL int m0_dtx0_copy_txd(const struct m0_dtx    *dtx,
 				 struct m0_dtm0_tx_desc *dst);
 
+M0_INTERNAL enum m0_dtm0_dtx_state m0_dtx0_sm_state(const struct m0_dtx *dtx);
+
 #endif /* __MOTR_DTM0_DTX_H__ */
 
 /*

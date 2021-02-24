@@ -831,6 +831,7 @@ static void st_put_one(void)
 	M0_UT_ASSERT(rcs[0] == 0);
 	rc = m0_op_wait(op, M0_BITS(M0_OS_STABLE), WAIT_TIMEOUT);
 	M0_LOG(DEBUG, "Got stable");
+	M0_UT_ASSERT(rc == 0);
 	m0_op_fini(op);
 	m0_op_free(op);
 	op = NULL;

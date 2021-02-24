@@ -242,6 +242,9 @@ static void dtx_exec_all_ast_cb(struct m0_sm_group *grp, struct m0_sm_ast *ast)
 	struct m0_dtm0_dtx *dtx = ast->sa_datum;
 	int                 i;
 
+	M0_ASSERT(dtx->dd_sm.sm_state == M0_DDS_EXECUTED_ALL);
+	M0_ASSERT(dtx->dd_nr_executed == dtx->dd_txd.dtd_pg.dtpg_nr);
+
 	/* XXX: This loop emulates synchronous arrival of DTM0 notices.
 	 * It should be removed once DTM0 service is able to send the notice.
 	 */
@@ -250,8 +253,6 @@ static void dtx_exec_all_ast_cb(struct m0_sm_group *grp, struct m0_sm_ast *ast)
 	}
 
 	if (m0_dtm0_tx_desc_state(&dtx->dd_txd, M0_DTPS_PERSISTENT)) {
-		M0_ASSERT_INFO(dtx->dd_sm.sm_state == M0_DDS_EXECUTED_ALL);
-		M0_ASSERT(dtx->dd_nr_executed == dtx->dd_txd.dtd_pg.dtpg_nr);
 		m0_sm_state_set(&dtx->dd_sm, M0_DDS_STABLE);
 	}
 }
@@ -282,6 +283,15 @@ static void m0_dtm0_dtx_executed(struct m0_dtm0_dtx *dtx, uint32_t idx)
 
 		dtx->dd_exec_all_ast.sa_cb = dtx_exec_all_ast_cb;
 		dtx->dd_exec_all_ast.sa_datum = dtx;
+		/* TODO: This is a poor-man's async call to ensure that
+		 * EXECUTED and STABLE are processed in "separate" ticks of
+		 * this machine. Such situation might happen only if DTM0
+		 * service notices are emulated (see the XXX comment inside
+		 * ::dtx_exec_all_ast_cb). In real life, DTM0 service will
+		 * always post such an update as an ast, therefore the
+		 * state transition from the callback (::dtx_exec_all_ast_cb)
+		 * can be moved right in here.
+		 */
 		m0_sm_ast_post(dtx->dd_sm.sm_grp, &dtx->dd_exec_all_ast);
 	}
 
@@ -348,6 +358,12 @@ M0_INTERNAL int m0_dtx0_copy_txd(const struct m0_dtx    *dtx,
 	}
 
 	return m0_dtm0_tx_desc_copy(&dtx->tx_dtx->dd_txd, dst);
+}
+
+M0_INTERNAL enum m0_dtm0_dtx_state m0_dtx0_sm_state(const struct m0_dtx *dtx)
+{
+	M0_PRE(dtx != NULL);
+	return dtx->tx_dtx->dd_sm.sm_state;
 }
 
 
