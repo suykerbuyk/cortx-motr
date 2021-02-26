@@ -471,16 +471,18 @@ static uint32_t libfab_handle_connect_request_events(struct m0_fab__tm *tm)
 	struct fid_eq           *eq;
 	struct fi_eq_err_entry   eq_err;
 	struct fi_eq_cm_entry    entry;
+	struct m0_fab__ep_name   name;
+	uint64_t                 data;
 	uint32_t                 event;
 	int                      rc;
 
 	eq = tm->ftm_pep->fep_listen->pep_ep_res.fer_eq;
-	rc = fi_eq_read(eq, &event, &entry,
-			(sizeof(entry) + LIBFAB_ADDR_STRLEN_MAX), 0);
+	rc = fi_eq_read(eq, &event, &entry, (sizeof(entry) + sizeof(data)), 0);
 	if (rc >= sizeof(entry)) {
 		if (event == FI_CONNREQ) {
-			libfab_fab_ep_find(tm, NULL, (const char *)entry.data,
-					   &ep);
+			data = *(uint64_t *)entry.data;
+			libfab_ep_ntop(data, &name);
+			libfab_fab_ep_find(tm, &name, NULL, &ep);
 			rc = libfab_active_ep_create(ep, tm, entry.info);
 			fi_freeinfo(entry.info);
 		}
@@ -1586,6 +1588,7 @@ static int libfab_conn_init(struct m0_fab__ep *ep, struct m0_fab__tm *ma,
 {
 	struct m0_fab__active_ep *aep;
 	struct fi_info           *peer_fi;
+	uint64_t                  src;
 	int                       ret = 0;
 
 	aep = (ep->fep_listen != NULL) ? ep->fep_listen->pep_tx_ep :
@@ -1593,11 +1596,14 @@ static int libfab_conn_init(struct m0_fab__ep *ep, struct m0_fab__tm *ma,
 	if (aep->aep_state == FAB_NOT_CONNECTED) {
 		ret = libfab_destaddr_get(&ep->fep_name, ma->ftm_fab->fab_fi,
 					  &peer_fi);
-		ret = fi_connect(aep->aep_ep, peer_fi->dest_addr,
-				ma->ftm_pep->fep_name.fen_str_addr, 
-				LIBFAB_ADDR_STRLEN_MAX);
+		libfab_ep_pton(&ma->ftm_pep->fep_name, &src);
+		ret = fi_connect(aep->aep_ep, peer_fi->dest_addr, &src,
+				 sizeof(uint64_t));
 		if (ret == FI_SUCCESS)
 			aep->aep_state = FAB_CONNECTING;
+		else
+			M0_LOG(M0_ALWAYS, " Conn req failed dst=%"PRIx64" src=%"PRIx64" ",
+				*(uint64_t*)peer_fi->dest_addr, src);
 		fi_freeinfo(peer_fi);
 	}
 	fab_sndbuf_tlink_init_at_tail(fbp, &ep->fep_sndbuf);
@@ -1622,12 +1628,12 @@ static int libfab_fab_ep_find(struct m0_fab__tm *tm, struct m0_fab__ep_name *en,
 static void libfab_ep_pton(struct m0_fab__ep_name *name, uint64_t *out)
 {
 	uint32_t addr = 0;
-	uint64_t port = 0;
+	uint32_t port = 0;
 
 	inet_pton(AF_INET, name->fen_addr, &addr);
-	port = atoi(name->fen_port);
+	port = htonl(atoi(name->fen_port));
 
-	*out = (uint64_t)(addr | (port << 32));
+	*out = ((uint64_t)addr << 32) | port;
 }
 
 static void libfab_ep_ntop(uint64_t netaddr, struct m0_fab__ep_name *name)
@@ -1637,8 +1643,9 @@ static void libfab_ep_ntop(uint64_t netaddr, struct m0_fab__ep_name *name)
 		uint64_t net_addr;
 	} ap;
 	ap.net_addr = netaddr;
-	inet_ntop(AF_INET, &ap.ap[0], name->fen_addr, LIBFAB_ADDR_LEN_MAX);
-	sprintf(name->fen_port, "%d", ap.ap[1]);
+	inet_ntop(AF_INET, &ap.ap[1], name->fen_addr, LIBFAB_ADDR_LEN_MAX);
+	ap.ap[0] = ntohl(ap.ap[0]);
+	sprintf(name->fen_port, "%d", ap.ap[0]);
 }
 
 /*============================================================================*/
